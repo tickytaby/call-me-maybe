@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "accelerate>=1.14.0",
     "llm-sdk",
+    "numpy>=2.2.6",
 ]
 
 [project.scripts]
@@ -20,7 +21,3 @@ members = [
 [tool.uv.sources]
 llm-sdk = { workspace = true, editable = true }
 
-# [build-system]
-# requires = ["uv_build>=0.12.5,<0.13.0"]
-# build-backend = "uv_build"
-#
