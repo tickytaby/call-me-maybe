@@ -63,38 +63,9 @@ def get_tool_name(tool: dict) -> str:
     return name
 
 
-# def solve_prompt(prompt: str, trie: Trie) -> str: ...
-#
-
-
-def main() -> None:
-    with open("./data/input/functions_definition.json", "r") as f:
-        tools_list = json.load(f)
-    llm = Small_LLM_Model()
-    print("Len of tools_list: ", len(tools_list))
-    tools = json.dumps(tools_list)
-    tool_names = []
-    for tool in tools_list:
-        tool_names.append(get_tool_name(tool))
-    tokenized_tools = [llm.encode(tool).tolist()[0] for tool in tool_names]
-    for name, tokens in zip(tool_names, tokenized_tools):
-        print("tokenizing...", name, tokens)
-        print()
-
-    # Initializing and filling in the Trie
-    trie = Trie()
-    for toktool in tokenized_tools:
-        trie.insert(toktool)
-    print("successfully initialized the trie")
-    trie.display()
-    prefix = []
-    node = trie.root
-    while len(node.children) == 1:
-        print(node.children.items())
-        tid, _ = next(iter(node.children.items()))
-        prefix.append(tid)
-        node = node.children[tid]
-    print("prefix:", prefix)
+def solve_prompt(
+    llm: Small_LLM_Model, prompt: str, tools: list, trie: Trie, pref: list
+) -> str:
     SYSTEM = f"""system You are a helpful assistant, you will answer user questions using the tools provided.
         tools_list: {tools}
 
@@ -102,25 +73,26 @@ def main() -> None:
         {{"name": "fn_add_numbers", "a": 1, "b": 3}}
         user 
     """
-    PROMPT = "Reverse the following string: elloH"
-    initial_prompt = START + SYSTEM + PROMPT + END + START + "assistant"
-    print(initial_prompt)
+    initial_prompt = START + SYSTEM + prompt + END + START + "assistant"
+    prefix = pref.copy()
     encoded_prompt = llm.encode(initial_prompt)[0].tolist()
     logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
     probs = torch.softmax(logits, dim=-1)
     idx = probs.argmax(dim=-1).item()
     encoded_prompt.append(idx)
-    print(PROMPT)
-    print()
+    answer = []
     while idx != END_THINK_TOK:
         logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
         probs = torch.softmax(logits, dim=-1)
         idx = probs.argmax(dim=-1).item()
-        print(llm.decode([idx]), end="")
-        sys.stdout.flush()
+        # print(llm.decode([idx]), end="")
+        # sys.stdout.flush()
         encoded_prompt.append(idx)
-    encoded_prompt.append(llm.encode("{").tolist()[0][0])
+    op_brace_tok = llm.encode("{").tolist()[0][0]
+    encoded_prompt.append(op_brace_tok)
     encoded_prompt.extend(prefix)
+    answer.append(op_brace_tok)
+    answer.extend(prefix)
     valid_token_ids = trie.get_valid_next_tokens(prefix)
     while len(valid_token_ids):
         valid_token_ids = trie.get_valid_next_tokens(prefix)
@@ -131,19 +103,118 @@ def main() -> None:
             prefix.append(idx)
         else:
             idx = probs.argmax(dim=-1).item()
-        print(llm.decode([idx]), end="")
-        sys.stdout.flush()
+        # print(llm.decode([idx]), end="")
+        # sys.stdout.flush()
         encoded_prompt.append(idx)
+        answer.append(idx)
     while idx != END_TOKEN:
         logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
         probs = torch.softmax(logits, dim=-1)
         idx = probs.argmax(dim=-1).item()
-        print(llm.decode([idx]), end="")
-        sys.stdout.flush()
+        # print(llm.decode([idx]), end="")
+        # sys.stdout.flush()
         encoded_prompt.append(idx)
+        answer.append(idx)
 
-    print("\nFULL TEXT:")
-    print(llm.decode(encoded_prompt))
+    # print("\nFULL TEXT:")
+    # print(llm.decode(encoded_prompt))
+    ret_str = llm.decode(answer)
+    return ret_str
+
+
+def main() -> None:
+    with open("./data/input/functions_definition.json", "r") as f:
+        tools_list = json.load(f)
+    llm = Small_LLM_Model()
+    # print("Len of tools_list: ", len(tools_list))
+    tool_names = []
+    for tool in tools_list:
+        tool_names.append(get_tool_name(tool))
+    tokenized_tools = [llm.encode(tool).tolist()[0] for tool in tool_names]
+    # for name, tokens in zip(tool_names, tokenized_tools):
+    #     print("tokenizing...", name, tokens)
+    #     print()
+
+    # Initializing and filling in the Trie
+    trie = Trie()
+    for toktool in tokenized_tools:
+        trie.insert(toktool)
+    prefix = []
+    node = trie.root
+    while len(node.children) == 1:
+        # print(node.children.items())
+        tid, _ = next(iter(node.children.items()))
+        prefix.append(tid)
+        node = node.children[tid]
+
+    with open("./data/input/function_calling_tests.json", "r") as f:
+        prompts = json.load(f)
+    prompts_str = [p["prompt"] for p in prompts]
+    answers = []
+    for prompt in prompts_str:
+        answers.append(solve_prompt(llm, prompt, tools_list, trie, prefix))
+    for q, a in zip(prompts_str, answers):
+        print(q, a)
+        print()
+    # print("successfully initialized the trie")
+    # trie.display()
+    # prefix = []
+    # node = trie.root
+    # while len(node.children) == 1:
+    #     print(node.children.items())
+    #     tid, _ = next(iter(node.children.items()))
+    #     prefix.append(tid)
+    #     node = node.children[tid]
+    # print("prefix:", prefix)
+    # SYSTEM = f"""system You are a helpful assistant, you will answer user questions using the tools provided.
+    #     tools_list: {tools}
+    #
+    #     An example filled in tool call:
+    #     {{"name": "fn_add_numbers", "a": 1, "b": 3}}
+    #     user
+    # """
+    # PROMPT = "Reverse the following string: elloH"
+    # initial_prompt = START + SYSTEM + PROMPT + END + START + "assistant"
+    # print(initial_prompt)
+    # encoded_prompt = llm.encode(initial_prompt)[0].tolist()
+    # logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
+    # probs = torch.softmax(logits, dim=-1)
+    # idx = probs.argmax(dim=-1).item()
+    # encoded_prompt.append(idx)
+    # print(PROMPT)
+    # print()
+    # while idx != END_THINK_TOK:
+    #     logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
+    #     probs = torch.softmax(logits, dim=-1)
+    #     idx = probs.argmax(dim=-1).item()
+    #     print(llm.decode([idx]), end="")
+    #     sys.stdout.flush()
+    #     encoded_prompt.append(idx)
+    # encoded_prompt.append(llm.encode("{").tolist()[0][0])
+    # encoded_prompt.extend(prefix)
+    # valid_token_ids = trie.get_valid_next_tokens(prefix)
+    # while len(valid_token_ids):
+    #     valid_token_ids = trie.get_valid_next_tokens(prefix)
+    #     logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
+    #     probs = torch.softmax(logits, dim=-1)
+    #     if len(valid_token_ids):
+    #         idx = max(valid_token_ids, key=lambda tid: probs[tid])
+    #         prefix.append(idx)
+    #     else:
+    #         idx = probs.argmax(dim=-1).item()
+    #     print(llm.decode([idx]), end="")
+    #     sys.stdout.flush()
+    #     encoded_prompt.append(idx)
+    # while idx != END_TOKEN:
+    #     logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
+    #     probs = torch.softmax(logits, dim=-1)
+    #     idx = probs.argmax(dim=-1).item()
+    #     print(llm.decode([idx]), end="")
+    #     sys.stdout.flush()
+    #     encoded_prompt.append(idx)
+    #
+    # print("\nFULL TEXT:")
+    # print(llm.decode(encoded_prompt))
 
 
 if __name__ == "__main__":
