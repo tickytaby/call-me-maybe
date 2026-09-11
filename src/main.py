@@ -13,10 +13,12 @@ END_TOKEN = 151645
 START_THINK_TOK = 151667
 END_THINK_TOK = 151668
 
+
 class TrieNode:
     def __init__(self):
         self.children = {}
         self.is_end = False
+
 
 class Trie:
     def __init__(self):
@@ -47,16 +49,23 @@ class Trie:
         return node.is_end
 
     def display(self, node=None, prefix="", depth=0):
-            if node is None:
-                node = self.root
-            marker = " [END]" if node.is_end else ""
-            if depth > 0:  # skip printing the root itself
-                print("  " * (depth - 1) + f"└─ {prefix}{marker}")
-            for tid, child in node.children.items():
-                self.display(child, prefix=str(tid), depth=depth + 1)
+        if node is None:
+            node = self.root
+        marker = " [END]" if node.is_end else ""
+        if depth > 0:  # skip printing the root itself
+            print("  " * (depth - 1) + f"└─ {prefix}{marker}")
+        for tid, child in node.children.items():
+            self.display(child, prefix=str(tid), depth=depth + 1)
+
+
 def get_tool_name(tool: dict) -> str:
     name = '"name": ' + '"' + tool["name"] + '"'
     return name
+
+
+# def solve_prompt(prompt: str, trie: Trie) -> str: ...
+#
+
 
 def main() -> None:
     with open("./data/input/functions_definition.json", "r") as f:
@@ -82,22 +91,19 @@ def main() -> None:
     node = trie.root
     while len(node.children) == 1:
         print(node.children.items())
-        tid, child_node = next(iter(node.children.items()))
+        tid, _ = next(iter(node.children.items()))
         prefix.append(tid)
         node = node.children[tid]
     print("prefix:", prefix)
     SYSTEM = f"""system You are a helpful assistant, you will answer user questions using the tools provided.
         tools_list: {tools}
+
+        An example filled in tool call:
+        {{"name": "fn_add_numbers", "a": 1, "b": 3}}
         user 
     """
-    THOUGHT = f"""
-    {START_THINK}
-    I am instructed to choose one of the following tools to solve the user request.
-    I need to provide the function call in valid json, no extra characters. Ok.
-    {END_THINK}
-    """
     PROMPT = "Reverse the following string: elloH"
-    initial_prompt = START + SYSTEM + PROMPT + END + START + THOUGHT + "assistant" + '{"name": "fn_'
+    initial_prompt = START + SYSTEM + PROMPT + END + START + "assistant"
     print(initial_prompt)
     encoded_prompt = llm.encode(initial_prompt)[0].tolist()
     logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
@@ -106,19 +112,38 @@ def main() -> None:
     encoded_prompt.append(idx)
     print(PROMPT)
     print()
-    print('{"name": "fn_', end="")
-    func_name = 1
-    while idx != END_TOKEN:
-        valid_token_ids = trie.get_valid_next_tokens(prefix)
+    while idx != END_THINK_TOK:
         logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
         probs = torch.softmax(logits, dim=-1)
         idx = probs.argmax(dim=-1).item()
-        if func_name:
-            idx = max(valid_token_ids, key=lambda tid: probs[tid])
-            prefix.append(idx)
         print(llm.decode([idx]), end="")
         sys.stdout.flush()
         encoded_prompt.append(idx)
+    encoded_prompt.append(llm.encode("{").tolist()[0][0])
+    encoded_prompt.extend(prefix)
+    valid_token_ids = trie.get_valid_next_tokens(prefix)
+    while len(valid_token_ids):
+        valid_token_ids = trie.get_valid_next_tokens(prefix)
+        logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
+        probs = torch.softmax(logits, dim=-1)
+        if len(valid_token_ids):
+            idx = max(valid_token_ids, key=lambda tid: probs[tid])
+            prefix.append(idx)
+        else:
+            idx = probs.argmax(dim=-1).item()
+        print(llm.decode([idx]), end="")
+        sys.stdout.flush()
+        encoded_prompt.append(idx)
+    while idx != END_TOKEN:
+        logits = torch.tensor(llm.get_logits_from_input_ids(encoded_prompt))
+        probs = torch.softmax(logits, dim=-1)
+        idx = probs.argmax(dim=-1).item()
+        print(llm.decode([idx]), end="")
+        sys.stdout.flush()
+        encoded_prompt.append(idx)
+
+    print("\nFULL TEXT:")
+    print(llm.decode(encoded_prompt))
 
 
 if __name__ == "__main__":
