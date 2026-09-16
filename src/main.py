@@ -4,6 +4,8 @@ import sys
 import json
 from typing import Any
 import time
+from collections import defaultdict
+import copy
 
 
 START = "<|im_start|> "
@@ -60,7 +62,7 @@ class Trie:
             self.display(child, prefix=str(tid), depth=depth + 1)
 
 
-class JSONUtil:
+class Util:
     @classmethod
     def get_name(cls, tool: dict[str, str]) -> str:
         return tool["name"]
@@ -84,9 +86,10 @@ class Tool:
     name: str
     parameters: dict[str, type]
 
-    def __init__(self, tool: dict[str, str]):
-        self.name = JSONUtil.get_name(tool)
-        self.parameters = JSONUtil.get_parameters(tool)
+    def __init__(self, tool: dict):
+        self.name = Util.get_name(tool)
+        self.parameters = Util.get_parameters(tool)
+        self.template = tool
 
     def as_string(self) -> str:
         out = f'{{\n\t"name": "{self.name}",\n\t"parameters": {{\n'
@@ -123,6 +126,118 @@ class Tool:
         except Exception:
             return -1
         return 1
+
+
+def choose_fn(
+    llm: Small_LLM_Model, prompt: str, tools: dict[str, Tool], trie: Trie, pref: list
+) -> str:
+    CHOOSE_TOOL_PROMPT = f"""
+    system
+
+    You are a helpful assistant, you will the tool to call to complete the user prompt. Pick from the list below.
+    tools_list: {[k for k in tools.keys()]}
+
+    The user prompt is: {prompt}
+    """
+    prefix = pref.copy()
+    initial_prompt = START + CHOOSE_TOOL_PROMPT + END + START + "assistant"
+    conversation = llm.encode(initial_prompt)[0].tolist()
+    logits = torch.tensor(llm.get_logits_from_input_ids(conversation))
+    probs = torch.softmax(logits, dim=-1)
+    idx = probs.argmax(dim=-1).item()
+    conversation.append(idx)
+    answer = []
+    thought = []
+    # Here we are letting the model think
+    while idx != END_THINK_TOK:
+        logits = torch.tensor(llm.get_logits_from_input_ids(conversation))
+        probs = torch.softmax(logits, dim=-1)
+        idx = probs.argmax(dim=-1).item()
+        # print(llm.decode([idx]), end="")
+        # sys.stdout.flush()
+        conversation.append(idx)
+        thought.append(idx)
+    conversation.extend(prefix)
+    # Here for example this is inefficient because we can just store the len at this time and return the encoded_prompt[len:]
+    answer.extend(prefix)
+    # print("ALL THAT IS FIXED: ", llm.decode(answer))
+    valid_token_ids = trie.get_valid_next_tokens(prefix)
+    while len(valid_token_ids):
+        valid_token_ids = trie.get_valid_next_tokens(prefix)
+        logits = torch.tensor(llm.get_logits_from_input_ids(conversation))
+        probs = torch.softmax(logits, dim=-1)
+        if len(valid_token_ids):
+            idx = max(valid_token_ids, key=lambda tid: probs[tid])
+            prefix.append(idx)
+        else:
+            idx = probs.argmax(dim=-1).item()
+        # print(llm.decode([idx]), end="")
+        # sys.stdout.flush()
+        conversation.append(idx)
+        answer.append(idx)
+    return llm.decode(answer)
+
+
+def fill_in_parameters(
+    llm: Small_LLM_Model, prompt: str, tools: dict[str, Tool], tool_name: str
+) -> dict:
+    SYSTEM = f"""
+    system
+    You are a helpful assistant, the user chose the "{tool_name}" tool to solve the following prompt:
+    {prompt}
+
+    You are now tasked to fill in the parameters of the function call.
+    The function takes the following shape:
+    {tools[tool_name].template}
+
+    assistant
+    """
+    initial_prompt = START + SYSTEM + END + START + "assistant"
+    fn = copy.deepcopy(tools[tool_name].template)
+    params = fn["parameters"]
+    convo = llm.encode(initial_prompt)[0].tolist()
+    idx = 5
+    print(initial_prompt)
+    for k, obj in params.items():
+        meta = f"{START_THINK} I am filling the parameter {k}, which must be of type {obj['type']} {END_THINK}"
+        print(meta)
+        encoded_meta = llm.encode(meta)[0].tolist()
+        convo.extend(encoded_meta)
+        value = []
+        while idx != END_TOKEN:
+            logits = torch.tensor(llm.get_logits_from_input_ids(convo))
+            probs = torch.softmax(logits, dim=-1)
+            idx = probs.argmax(dim=-1).item()
+            convo.append(idx)
+            value.append(idx)
+            print(llm.decode(idx), end="")
+            sys.stdout.flush()
+        obj["value"] = llm.decode(value)
+
+    return params
+
+
+def complete_fn_call(
+    llm: Small_LLM_Model, prompt: str, tools: dict[str, Tool], trie: Trie, pref: list
+) -> tuple[str, str]:
+    # First we need the model to choose the tool name. We will do so using constrained decoding to force
+    # a valid tool_name from our list using our trie.
+    #
+    # After that, we will create the tool.template that will be filled, we will then iterate on the parameters
+    # as k, v and the llm will set the desired values to solve the prompt.
+    #
+    # Lastly, we will create a sub-dictionary with only the k, v expected in the output, and run a json.dumps()
+    tool_name = choose_fn(llm, prompt, tools, trie, pref)
+    SYSTEM = f"""
+    system
+    You are a helpful assistant, the user chose the "{tool_name}" tool to solve the following prompt:
+    {prompt}
+
+    You are now tasked to fill in the parameters of the function call.
+
+    assistant
+    """
+    return ("a", "b")
 
 
 def get_tool_name(tool: dict) -> str:
@@ -228,24 +343,14 @@ def main() -> None:
     for tool in tools_list:
         tools_dict[tool["name"]] = Tool(tool)
 
-    # for _, v in tools_dict.items():
-    #     print(v.as_string())
-    tool_names = []
-    for tool in tools_list:
-        tool_names.append(get_tool_name(tool))
+    tool_names = [name for name in tools_dict.keys()]
     tokenized_tools = [llm.encode(tool).tolist()[0] for tool in tool_names]
-    # for name, tokens in zip(tool_names, tokenized_tools):
-    #     print("tokenizing...", name, tokens)
-    #     print()
-
-    # Initializing and filling in the Trie
     trie = Trie()
     for toktool in tokenized_tools:
         trie.insert(toktool)
     prefix = []
     node = trie.root
     while len(node.children) == 1:
-        # print(node.children.items())
         tid, _ = next(iter(node.children.items()))
         prefix.append(tid)
         node = node.children[tid]
@@ -256,27 +361,87 @@ def main() -> None:
     print(
         f"\n\n-----------------------\nAnswering {len(prompts_str)} prompts\n--------------------------\n\n"
     )
+    print("PREFIX:", llm.decode(prefix))
+    print()
     answers = []
     for prompt in prompts_str:
-        answers.append(solve_prompt(llm, prompt, tools_list, trie, prefix))
+        tool = choose_fn(llm, prompt, tools_dict, trie, prefix)
+        params = fill_in_parameters(llm, prompt, tools_dict, tool)
+        answers.append(params)
+        print(f"{prompt}:\n{params}\n")
+        break
 
-    print(f"Found {len(answers)} answers\n\n")
-    try:
-        for q, a in zip(prompts_str, answers):
-            print(q)
-            # print("thought:", a[0])
-            print("fn_call:", a[1])
-            try:
-                call = json.loads(a[1])
-                print(
-                    "calling tool validation for tool:", tools_dict[call["name"]].name
-                )
-                print(tools_dict[call["name"]].validate_tool_call(a[1]))
-            except Exception:
-                print(f"Failed to load string into json object for: \n{a[1]}")
-            print()
-    except Exception as e:
-        print(e)
+    # for prompt in prompts_str:
+    #     answers.append(complete_fn_call(llm, prompt, tools_list, trie, prefix))
+    #
+    # print(f"Found {len(answers)} answers\n\n")
+    # try:
+    #     for q, a in zip(prompts_str, answers):
+    #         print(q)
+    #         # print("thought:", a[0])
+    #         print("fn_call:", a[1])
+    #         try:
+    #             call = json.loads(a[1])
+    #             print(
+    #                 "calling tool validation for tool:", tools_dict[call["name"]].name
+    #             )
+    #             print(tools_dict[call["name"]].validate_tool_call(a[1]))
+    #         except Exception:
+    #             print(f"Failed to load string into json object for: \n{a[1]}")
+    #         print()
+    # except Exception as e:
+    #     print(e)
+
+    #
+    # # for _, v in tools_dict.items():
+    # #     print(v.as_string())
+    # tool_names = []
+    # for tool in tools_list:
+    #     tool_names.append(get_tool_name(tool))
+    # tokenized_tools = [llm.encode(tool).tolist()[0] for tool in tool_names]
+    # # for name, tokens in zip(tool_names, tokenized_tools):
+    # #     print("tokenizing...", name, tokens)
+    # #     print()
+    #
+    # # Initializing and filling in the Trie
+    # trie = Trie()
+    # for toktool in tokenized_tools:
+    #     trie.insert(toktool)
+    # prefix = []
+    # node = trie.root
+    # while len(node.children) == 1:
+    #     # print(node.children.items())
+    #     tid, _ = next(iter(node.children.items()))
+    #     prefix.append(tid)
+    #     node = node.children[tid]
+    #
+    # with open("./data/input/function_calling_tests.json", "r") as f:
+    #     prompts = json.load(f)
+    # prompts_str = [p["prompt"] for p in prompts]
+    # print(
+    #     f"\n\n-----------------------\nAnswering {len(prompts_str)} prompts\n--------------------------\n\n"
+    # )
+    # answers = []
+    # for prompt in prompts_str:
+    #     answers.append(solve_prompt(llm, prompt, tools_list, trie, prefix))
+    #
+    # print(f"Found {len(answers)} answers\n\n")
+    # try:
+    #     for q, a in zip(prompts_str, answers):
+    #         print(q)
+    #         # print("thought:", a[0])
+    #         print("fn_call:", a[1])
+    #         try:
+    #             call = json.loads(a[1])
+    #             print(
+    #                 "calling tool validation for tool:", tools_dict[call["name"]].name
+    #             )
+    #             print(tools_dict[call["name"]].validate_tool_call(a[1]))
+    #         except Exception:
+    #             print(f"Failed to load string into json object for: \n{a[1]}")
+    #         print()
+    # except Exception as e:
+    #     print(e)
     end = time.perf_counter()
     print(f"Elapsed: {end - start:.4f} seconds")
     return
