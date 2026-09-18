@@ -93,7 +93,11 @@ class Tool:
 
 
 def choose_fn(
-    llm: Small_LLM_Model, prompt: str, tools: dict[str, Tool], trie: Trie, pref: list
+    llm: Small_LLM_Model,
+    prompt: str,
+    tools: dict[str, Tool],
+    trie: Trie,
+    pref: list
 ) -> str:
     CHOOSE_TOOL_PROMPT = f"""
     system
@@ -335,16 +339,22 @@ def _let_model_think(
     verbatim; a fixed one-line comment gives the model no room to work that
     out, so this appends a real `<think>` span it actually generates.
     """
-    convo.extend(llm.encode(f"{START_THINK} {hint}")[0].tolist())
+    init_hint = llm.encode(f"{START_THINK} {hint}")[0].tolist()
+    convo.extend(init_hint)
     idx = -1
+    value_ids = []
+    value_ids.extend(init_hint)
     for _ in range(max_tokens):
         logits = llm.get_logits_from_input_ids(convo)
         idx = _argmax(logits)
         convo.append(idx)
+        value_ids.append(idx)
         if idx == END_THINK_TOK:
             break
     if idx != END_THINK_TOK:
         convo.append(END_THINK_TOK)
+        value_ids.append(END_THINK_TOK)
+    print(llm.decode(value_ids))
 
 
 def _coerce_value(text: str, type_: str) -> Any:
@@ -395,8 +405,10 @@ def fill_in_parameters(
     for k, obj in params.items():
         snapshot_len = len(convo)
 
-        meta = f"{START_THINK} I am filling the parameter {k},"
-        f" which must be of type {obj['type']} {END_THINK}"
+        meta = (
+            f"{START_THINK} I am filling the parameter {k}, "
+            f"which must be of type {obj['type']} {END_THINK}"
+        )
         convo.extend(llm.encode(meta)[0].tolist())
 
         # Cue the model into "answer mode" right before constrained decoding
