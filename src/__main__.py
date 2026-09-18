@@ -1,5 +1,6 @@
 from llm_sdk import Small_LLM_Model  # type: ignore[attr-defined]
 import numpy as np
+import argparse
 import json
 from typing import Any
 import time
@@ -76,12 +77,12 @@ class Util:
     @classmethod
     def build_fn_call(
         cls, prompt: str, tool: str, params: dict[str, Any]
-    ) -> str:
+    ) -> dict[str, Any]:
         output: dict[str, Any] = {}
         output["prompt"] = prompt
         output["name"] = tool
         output["parameters"] = {k: v["value"] for k, v in params.items()}
-        return json.dumps(output)
+        return output
 
 
 class Tool:
@@ -99,7 +100,7 @@ def choose_fn(
     prompt: str,
     tools: dict[str, Tool],
     trie: Trie,
-    pref: list[int]
+    pref: list[int],
 ) -> str:
     CHOOSE_TOOL_PROMPT = f"""
     system
@@ -356,7 +357,6 @@ def _let_model_think(
     if idx != END_THINK_TOK:
         convo.append(END_THINK_TOK)
         value_ids.append(END_THINK_TOK)
-    print(llm.decode(value_ids))
 
 
 def _coerce_value(text: str, type_: str) -> Any:
@@ -455,12 +455,31 @@ def fill_in_parameters(
     return params
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="call-me-maybe")
+    parser.add_argument(
+        "--functions_definition",
+        default="./data/input/functions_definition.json",
+        help="Path to the JSON file describing the available tools.",
+    )
+    parser.add_argument(
+        "--input",
+        default="./data/input/function_calling_tests.json",
+        help="Path to the JSON file with the list of prompts to answer.",
+    )
+    parser.add_argument(
+        "--output",
+        default="./output.json",
+        help="Path to write the resulting JSON list of fn_calls to.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    start = time.perf_counter()
-    with open("./data/input/functions_definition.json", "r") as f:
+    args = parse_args()
+    with open(args.functions_definition, "r") as f:
         tools_list = json.load(f)
     llm = Small_LLM_Model()
-    # print("Len of tools_list: ", len(tools_list))
     tools_dict = {}
     for tool in tools_list:
         tools_dict[tool["name"]] = Tool(tool)
@@ -477,22 +496,19 @@ def main() -> None:
         prefix.append(tid)
         node = node.children[tid]
 
-    with open("./data/input/function_calling_tests.json", "r") as f:
+    with open(args.input, "r") as f:
         prompts = json.load(f)
     prompts_str = [p["prompt"] for p in prompts]
-    print(f"\nAnswering {len(prompts_str)} prompts\n")
-    print("PREFIX:", llm.decode(prefix))
-    print()
     answers = []
     for prompt in prompts_str:
         tool = choose_fn(llm, prompt, tools_dict, trie, prefix)
         params = fill_in_parameters(llm, prompt, tools_dict, tool)
         call = Util.build_fn_call(prompt, tool, params)
         answers.append(call)
-        print(f"{call}")
 
-    end = time.perf_counter()
-    print(f"Elapsed: {end - start:.4f} seconds")
+    with open(args.output, "w") as f:
+        json.dump(answers, f, indent=2)
+
     return
 
 
