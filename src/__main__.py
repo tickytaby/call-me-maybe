@@ -1,4 +1,4 @@
-from llm_sdk import Small_LLM_Model
+from llm_sdk import Small_LLM_Model  # type: ignore[attr-defined]
 import numpy as np
 import json
 from typing import Any
@@ -24,16 +24,16 @@ MAX_PLAN_THINK_TOKENS = 96
 
 
 class TrieNode:
-    def __init__(self):
-        self.children = {}
+    def __init__(self) -> None:
+        self.children: dict[int, "TrieNode"] = {}
         self.is_end = False
 
 
 class Trie:
-    def __init__(self):
+    def __init__(self) -> None:
         self.root = TrieNode()
 
-    def insert(self, token_ids: list[int]):
+    def insert(self, token_ids: list[int]) -> None:
         node = self.root
         for tid in token_ids:
             if tid not in node.children:
@@ -56,14 +56,14 @@ class Util:
         return tool["name"]
 
     @classmethod
-    def get_parameters(cls, tool: dict[str, Any]) -> dict:
-        out = {}
+    def get_parameters(cls, tool: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
         parameters_dict = tool["parameters"]
         for k, v in parameters_dict.items():
             if v["type"] == "number":
                 # A JSON "number" can legally decode to either an int (e.g.
                 # "2") or a float (e.g. "3.0"); accept both.
-                typ = (int, float)
+                typ: Any = (int, float)
             elif v["type"] == "string":
                 typ = str
             elif v["type"] == "boolean":
@@ -74,8 +74,10 @@ class Util:
         return out
 
     @classmethod
-    def build_fn_call(cls, prompt: str, tool: str, params: dict) -> str:
-        output = {}
+    def build_fn_call(
+        cls, prompt: str, tool: str, params: dict[str, Any]
+    ) -> str:
+        output: dict[str, Any] = {}
         output["prompt"] = prompt
         output["name"] = tool
         output["parameters"] = {k: v["value"] for k, v in params.items()}
@@ -86,7 +88,7 @@ class Tool:
     name: str
     parameters: dict[str, type | tuple[type, ...]]
 
-    def __init__(self, tool: dict):
+    def __init__(self, tool: dict[str, Any]):
         self.name = Util.get_name(tool)
         self.parameters = Util.get_parameters(tool)
         self.template = tool
@@ -97,7 +99,7 @@ def choose_fn(
     prompt: str,
     tools: dict[str, Tool],
     trie: Trie,
-    pref: list
+    pref: list[int]
 ) -> str:
     CHOOSE_TOOL_PROMPT = f"""
     system
@@ -137,7 +139,7 @@ def choose_fn(
             idx = _argmax(logits)
         conversation.append(idx)
         answer.append(idx)
-    return llm.decode(answer)
+    return str(llm.decode(answer))
 
 
 # Classification results for numeric constrained decoding depend only on the
@@ -257,7 +259,7 @@ def _fill_number_value(llm: Small_LLM_Model, convo: list[int]) -> str:
             in_fraction = state in ("after_dot", "frac_digits")
             state = "frac_digits" if in_fraction else "int_digits"
 
-    return llm.decode(value_ids).strip()
+    return str(llm.decode(value_ids)).strip()
 
 
 def _fill_bool_value(llm: Small_LLM_Model, convo: list[int]) -> str:
@@ -271,7 +273,7 @@ def _fill_bool_value(llm: Small_LLM_Model, convo: list[int]) -> str:
         convo.append(idx)
         prefix.append(idx)
         valid_token_ids = trie.get_valid_next_tokens(prefix)
-    return llm.decode(prefix).strip()
+    return str(llm.decode(prefix)).strip()
 
 
 def _fill_string_value(llm: Small_LLM_Model, convo: list[int]) -> str:
@@ -319,7 +321,7 @@ def _fill_string_value(llm: Small_LLM_Model, convo: list[int]) -> str:
         convo.append(idx)
         value_ids.append(idx)
 
-    text = llm.decode(value_ids).strip()
+    text = str(llm.decode(value_ids)).strip()
     if quote_char is not None and text.endswith(quote_char):
         text = text[: -len(quote_char)].rstrip()
     return text
@@ -371,7 +373,7 @@ def _coerce_value(text: str, type_: str) -> Any:
 
 def fill_in_parameters(
     llm: Small_LLM_Model, prompt: str, tools: dict[str, Tool], tool_name: str
-) -> dict:
+) -> dict[str, Any]:
     SYSTEM = f"""
     system
     You are a helpful assistant,
@@ -386,7 +388,7 @@ def fill_in_parameters(
     """
     initial_prompt = START + SYSTEM + END + START + "assistant"
     fn = copy.deepcopy(tools[tool_name].template)
-    params = fn["parameters"]
+    params: dict[str, Any] = fn["parameters"]
     convo = llm.encode(initial_prompt)[0].tolist()
 
     # Reason about every parameter together, once, before any value is

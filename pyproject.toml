@@ -4,13 +4,20 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["accelerate>=1.14.0", "llm-sdk", "numpy>=2.2.6"]
+dependencies = [
+    "accelerate>=1.14.0",
+ "llm-sdk",
+ "numpy>=2.2.6",
+ "pydantic>=2.13.5",
+]
 
 [project.scripts]
 call-me-maybe = "call_me_maybe:main"
 
 [tool.uv.workspace]
-members = ["llm_sdk"]
+members = [
+    "llm_sdk",
+]
 
 [tool.uv.sources]
 llm-sdk = { workspace = true }
