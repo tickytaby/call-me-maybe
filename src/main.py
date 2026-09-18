@@ -49,23 +49,6 @@ class Trie:
             node = node.children[tid]
         return set(node.children.keys())
 
-    def is_complete(self, prefix: list[int]) -> bool:
-        node = self.root
-        for tid in prefix:
-            if tid not in node.children:
-                return False
-            node = node.children[tid]
-        return node.is_end
-
-    def display(self, node=None, prefix="", depth=0):
-        if node is None:
-            node = self.root
-        marker = " [END]" if node.is_end else ""
-        if depth > 0:  # skip printing the root itself
-            print("  " * (depth - 1) + f"└─ {prefix}{marker}")
-        for tid, child in node.children.items():
-            self.display(child, prefix=str(tid), depth=depth + 1)
-
 
 class Util:
     @classmethod
@@ -108,42 +91,6 @@ class Tool:
         self.parameters = Util.get_parameters(tool)
         self.template = tool
 
-    def as_string(self) -> str:
-        out = f'{{\n\t"name": "{self.name}",\n\t"parameters": {{\n'
-        for k, v in self.parameters.items():
-            out += f'\t\t"{k}": {str(v)},\n'
-        out += "}"
-        return out
-
-    def validate_tool_call(self, call: str) -> int:
-        """1:  success"""
-        """ 0:  malformed json"""
-        """-1:  wrong type param"""
-        try:
-            data = json.loads(call)
-        except Exception as e:
-            print("failed to json.load in validation call")
-            print(e)
-            return 0
-        try:
-            if "parameters" not in data.keys() or not isinstance(
-                data["parameters"], dict
-            ):
-                print("parameters voice missing")
-                raise Exception()
-            for k, v in data["parameters"].items():
-                print("key:", k, "value:", v)
-                print(
-                    f"checking that {v} ({type(v)}) is of type {self.parameters[k]} ({self.parameters[k]}"
-                )
-                print()
-                if not isinstance(v, self.parameters[k]):
-                    print(f"Expecting type {self.parameters[k]} for {k}, got {v}")
-                    return 404
-        except Exception:
-            return -1
-        return 1
-
 
 def choose_fn(
     llm: Small_LLM_Model, prompt: str, tools: dict[str, Tool], trie: Trie, pref: list
@@ -164,18 +111,14 @@ def choose_fn(
     conversation.append(idx)
     answer = []
     thought = []
-    # Here we are letting the model think
+    # Letting the model think
     while idx != END_THINK_TOK:
         logits = llm.get_logits_from_input_ids(conversation)
         idx = _argmax(logits)
-        # print(llm.decode([idx]), end="")
-        # sys.stdout.flush()
         conversation.append(idx)
         thought.append(idx)
     conversation.extend(prefix)
-    # Here for example this is inefficient because we can just store the len at this time and return the encoded_prompt[len:]
     answer.extend(prefix)
-    # print("ALL THAT IS FIXED: ", llm.decode(answer))
     valid_token_ids = trie.get_valid_next_tokens(prefix)
     while len(valid_token_ids):
         valid_token_ids = trie.get_valid_next_tokens(prefix)
@@ -185,8 +128,6 @@ def choose_fn(
             prefix.append(idx)
         else:
             idx = _argmax(logits)
-        # print(llm.decode([idx]), end="")
-        # sys.stdout.flush()
         conversation.append(idx)
         answer.append(idx)
     return llm.decode(answer)
@@ -256,13 +197,7 @@ def build_bool_trie(llm: Small_LLM_Model) -> Trie:
 
 
 def _argmax(logits: list[float], candidate_ids: set[int] | None = None) -> int:
-    """Index of the largest logit, optionally restricted to `candidate_ids`.
-
-    Replaces the torch.argmax(...)/torch.softmax(...) calls this project
-    used to prototype with: softmax is a strictly monotonic transform, so it
-    never changes which index is largest and can simply be dropped rather
-    than reimplemented.
-    """
+    """Index of the largest logit, optionally restricted to `candidate_ids`."""
     arr = np.asarray(logits)
     if candidate_ids is None:
         return int(np.argmax(arr))
@@ -347,6 +282,7 @@ def _fill_string_value(llm: Small_LLM_Model, convo: list[int]) -> str:
     value_ids: list[int] = []
     quote_char: str | None = None
     started = False
+    # IMPORTANT: Missing the handling of the initial "token fused case
     for _ in range(MAX_STRING_TOKENS):
         logits = llm.get_logits_from_input_ids(convo)
         idx = _argmax(logits)
@@ -498,29 +434,6 @@ def fill_in_parameters(
         convo.extend(llm.encode(note)[0].tolist())
 
     return params
-
-
-def complete_fn_call(
-    llm: Small_LLM_Model, prompt: str, tools: dict[str, Tool], trie: Trie, pref: list
-) -> tuple[str, str]:
-    # First we need the model to choose the tool name. We will do so using constrained decoding to force
-    # a valid tool_name from our list using our trie.
-    #
-    # After that, we will create the tool.template that will be filled, we will then iterate on the parameters
-    # as k, v and the llm will set the desired values to solve the prompt.
-    #
-    # Lastly, we will create a sub-dictionary with only the k, v expected in the output, and run a json.dumps()
-    tool_name = choose_fn(llm, prompt, tools, trie, pref)
-    SYSTEM = f"""
-    system
-    You are a helpful assistant, the user chose the "{tool_name}" tool to solve the following prompt:
-    {prompt}
-
-    You are now tasked to fill in the parameters of the function call.
-
-    assistant
-    """
-    return ("a", "b")
 
 
 def main() -> None:
