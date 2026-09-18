@@ -98,7 +98,10 @@ def choose_fn(
     CHOOSE_TOOL_PROMPT = f"""
     system
 
-    You are a helpful assistant, you will the tool to call to complete the user prompt. Pick from the list below.
+    You are a helpful assistant,
+    you will the tool to call to complete the user prompt.
+    Pick from the list below.
+
     tools_list: {[k for k in tools.keys()]}
 
     The user prompt is: {prompt}
@@ -361,7 +364,8 @@ def fill_in_parameters(
 ) -> dict:
     SYSTEM = f"""
     system
-    You are a helpful assistant, the user chose the "{tool_name}" tool to solve the following prompt:
+    You are a helpful assistant,
+    the user chose the "{tool_name}" tool to solve the following prompt:
     {prompt}
 
     You are now tasked to fill in the parameters of the function call.
@@ -391,7 +395,8 @@ def fill_in_parameters(
     for k, obj in params.items():
         snapshot_len = len(convo)
 
-        meta = f"{START_THINK} I am filling the parameter {k}, which must be of type {obj['type']} {END_THINK}"
+        meta = f"{START_THINK} I am filling the parameter {k},"
+        f" which must be of type {obj['type']} {END_THINK}"
         convo.extend(llm.encode(meta)[0].tolist())
 
         # Cue the model into "answer mode" right before constrained decoding
@@ -461,9 +466,7 @@ def main() -> None:
     with open("./data/input/function_calling_tests.json", "r") as f:
         prompts = json.load(f)
     prompts_str = [p["prompt"] for p in prompts]
-    print(
-        f"\n\n-----------------------\nAnswering {len(prompts_str)} prompts\n--------------------------\n\n"
-    )
+    print(f"\nAnswering {len(prompts_str)} prompts\n")
     print("PREFIX:", llm.decode(prefix))
     print()
     answers = []
