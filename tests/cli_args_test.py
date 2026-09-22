@@ -66,6 +66,34 @@ def test_failed_write_output():
     assert result.returncode == 7
 
 
+def test_invalid_tools_schema():
+    result = run_cli(
+        [
+            "--functions_definition",
+            "../data/input/bad_schema_tools.json",
+            "--input",
+            "../data/input/function_calling_tests.json",
+            "--output",
+            "../data/output/output.json",
+        ]
+    )
+    assert result.returncode == 8
+
+
+def test_invalid_prompts_schema():
+    result = run_cli(
+        [
+            "--functions_definition",
+            "../data/input/functions_definition.json",
+            "--input",
+            "../data/input/bad_schema_prompts.json",
+            "--output",
+            "../data/output/output.json",
+        ]
+    )
+    assert result.returncode == 9
+
+
 def test_valid_run():
     result = run_cli(
         [

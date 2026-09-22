@@ -3,7 +3,7 @@
     "prompt": "What is the sum of 2 and 3?",
     "name": "fn_add_numbers",
     "parameters": {
-      "a": 2.0,
+      "a": 2,
       "b": 3.0
     }
   },
@@ -11,8 +11,46 @@
     "prompt": "What is the sum of 265 and 345?",
     "name": "fn_add_numbers",
     "parameters": {
-      "a": 265.0,
+      "a": 265,
       "b": 345.0
+    }
+  },
+  {
+    "prompt": "Add 4809 to 1298?",
+    "name": "fn_add_numbers",
+    "parameters": {
+      "a": 4809,
+      "b": 1298.0
+    }
+  },
+  {
+    "prompt": "What is 890 + 3927?",
+    "name": "fn_add_numbers",
+    "parameters": {
+      "a": 890,
+      "b": 3927.0
+    }
+  },
+  {
+    "prompt": "2 + 9?",
+    "name": "fn_add_numbers",
+    "parameters": {
+      "a": 2.0,
+      "b": 9.0
+    }
+  },
+  {
+    "prompt": "Say hi to Frankenstein",
+    "name": "fn_greet",
+    "parameters": {
+      "name": "Frankenstein"
+    }
+  },
+  {
+    "prompt": "Greet john",
+    "name": "fn_greet",
+    "parameters": {
+      "name": "john"
     }
   },
   {
@@ -23,10 +61,17 @@
     }
   },
   {
-    "prompt": "Greet john",
+    "prompt": "Say hi",
     "name": "fn_greet",
     "parameters": {
-      "name": "john"
+      "name": "{'name': 'user_input'}"
+    }
+  },
+  {
+    "prompt": "Say hi to albert",
+    "name": "fn_greet",
+    "parameters": {
+      "name": "albert"
     }
   },
   {
@@ -44,6 +89,27 @@
     }
   },
   {
+    "prompt": "What's the reverse of 'abclksjdfl'?",
+    "name": "fn_reverse_string",
+    "parameters": {
+      "s": "abclksjdfl"
+    }
+  },
+  {
+    "prompt": "What's the reverse of 'Alabama'?",
+    "name": "fn_reverse_string",
+    "parameters": {
+      "s": "Alabama"
+    }
+  },
+  {
+    "prompt": "Reverse the word abstinence",
+    "name": "fn_reverse_string",
+    "parameters": {
+      "s": "abstinence"
+    }
+  },
+  {
     "prompt": "What is the square root of 16?",
     "name": "fn_get_square_root",
     "parameters": {
@@ -54,16 +120,30 @@
     "prompt": "Calculate the square root of 144",
     "name": "fn_get_square_root",
     "parameters": {
-      "a": 144
+      "a": 144.0
+    }
+  },
+  {
+    "prompt": "What is the square root of 100?",
+    "name": "fn_get_square_root",
+    "parameters": {
+      "a": 100.0
+    }
+  },
+  {
+    "prompt": "Calculate the square root of 121",
+    "name": "fn_get_square_root",
+    "parameters": {
+      "a": 121.0
     }
   },
   {
     "prompt": "Replace all numbers in \"Hello 34 I'm 233 years old\" with NUMBERS",
     "name": "fn_substitute_string_with_regex",
     "parameters": {
-      "source_string": "34 233",
-      "regex": "34 233.",
-      "replacement": "34 233."
+      "source_string": "Hello 34 I'm 233 years old",
+      "regex": "\\d+",
+      "replacement": "NUMBERS"
     }
   },
   {
@@ -71,8 +151,8 @@
     "name": "fn_substitute_string_with_regex",
     "parameters": {
       "source_string": "Programming is fun",
-      "regex": "/[^aeiouy]/g.",
-      "replacement": "asterisks\"."
+      "regex": "[aeiouAEIOU]",
+      "replacement": "*"
     }
   },
   {

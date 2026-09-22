@@ -1,0 +1,44 @@
+[
+  {
+    "prompt": "Replace all digits in 'Room 42B, floor 7' with X"
+  },
+  {
+    "prompt": "Remove every whitespace in 'a b   c    d'"
+  },
+  {
+    "prompt": "Replace all uppercase letters in 'HeLLo WoRLD' with lowercase l"
+  },
+  {
+    "prompt": "Swap out every consonant in 'banana split' for underscores"
+  },
+  {
+    "prompt": "In 'good morning', replace morning with afternoon"
+  },
+  {
+    "prompt": "Change 'red apple' so apple becomes orange"
+  },
+  {
+    "prompt": "Remove all digits from 'agent007 reporting'"
+  },
+  {
+    "prompt": "Replace all spaces in 'one two three' with underscores"
+  },
+  {
+    "prompt": "Replace every lowercase letter in 'AbCdEf' with x"
+  },
+  {
+    "prompt": "Change every comma in 'red, green, blue' to a semicolon"
+  },
+  {
+    "prompt": "Replace all punctuation in 'Wait... really?! Wow!' with a single space"
+  },
+  {
+    "prompt": "Swap out every vowel in 'The Quick Brown Fox' for the digit 0"
+  },
+  {
+    "prompt": "Replace every consonant in 'hello world' with a hyphen, but leave the spaces alone"
+  },
+  {
+    "prompt": "In 'Total: $45.99 (tax incl.)', replace the decimal point in the price with a comma, European style"
+  }
+]

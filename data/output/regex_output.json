@@ -1,0 +1,128 @@
+[
+  {
+    "prompt": "Replace all digits in 'Room 42B, floor 7' with X",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "Room 42B, floor 7",
+      "regex": "\\d+",
+      "replacement": "X"
+    }
+  },
+  {
+    "prompt": "Remove every whitespace in 'a b   c    d'",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "a b   c    d",
+      "regex": "\\s+",
+      "replacement": ""
+    }
+  },
+  {
+    "prompt": "Replace all uppercase letters in 'HeLLo WoRLD' with lowercase l",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "HeLLo WoRLD",
+      "regex": "([A-Z]+)",
+      "replacement": "l"
+    }
+  },
+  {
+    "prompt": "Swap out every consonant in 'banana split' for underscores",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "banana split",
+      "regex": "([aeiouAEIOU])",
+      "replacement": "_"
+    }
+  },
+  {
+    "prompt": "In 'good morning', replace morning with afternoon",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "good morning",
+      "regex": "morning",
+      "replacement": "afternoon"
+    }
+  },
+  {
+    "prompt": "Change 'red apple' so apple becomes orange",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "red apple",
+      "regex": "apple",
+      "replacement": "orange"
+    }
+  },
+  {
+    "prompt": "Remove all digits from 'agent007 reporting'",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "agent007 reporting',",
+      "regex": "0+",
+      "replacement": ""
+    }
+  },
+  {
+    "prompt": "Replace all spaces in 'one two three' with underscores",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "one two three",
+      "regex": " ",
+      "replacement": "_"
+    }
+  },
+  {
+    "prompt": "Replace every lowercase letter in 'AbCdEf' with x",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "AbCdEf",
+      "regex": "lowercase letters",
+      "replacement": "x"
+    }
+  },
+  {
+    "prompt": "Change every comma in 'red, green, blue' to a semicolon",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "red, green, blue",
+      "regex": ",;",
+      "replacement": "semicolons"
+    }
+  },
+  {
+    "prompt": "Replace all punctuation in 'Wait... really?! Wow!' with a single space",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "Wait... really?! Wow!",
+      "regex": "[ ]",
+      "replacement": " "
+    }
+  },
+  {
+    "prompt": "Swap out every vowel in 'The Quick Brown Fox' for the digit 0",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "The Quick Brown Fox",
+      "regex": "",
+      "replacement": "0"
+    }
+  },
+  {
+    "prompt": "Replace every consonant in 'hello world' with a hyphen, but leave the spaces alone",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "hello world",
+      "regex": "([aeiouAEIOU])",
+      "replacement": "-"
+    }
+  },
+  {
+    "prompt": "In 'Total: $45.99 (tax incl.)', replace the decimal point in the price with a comma, European style",
+    "name": "fn_substitute_string_with_regex",
+    "parameters": {
+      "source_string": "Total: $45.99 (tax incl.)",
+      "regex": "Total: $45.99 (tax incl.)",
+      "replacement": ","
+    }
+  }
+]

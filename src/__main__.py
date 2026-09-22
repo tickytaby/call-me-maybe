@@ -1,12 +1,13 @@
 from llm_sdk import Small_LLM_Model  # type: ignore[attr-defined]
-from pydantic import BaseModel
+from pydantic import TypeAdapter, ValidationError
+from typing import cast
 import numpy as np
 import argparse
 import json
 import os
-from typing import Any
-import copy
 import sys
+import re
+from .models import FunctionCall, ParameterValue, PromptItem, ToolDefinition
 
 
 START = "<|im_start|> "
@@ -20,7 +21,7 @@ END_THINK_TOK = 151668
 
 MAX_VALUE_TOKENS = 32
 MAX_STRING_TOKENS = 20
-MAX_THINK_TOKENS = 40
+MAX_THINK_TOKENS = 80
 MAX_PLAN_THINK_TOKENS = 96
 
 
@@ -51,52 +52,39 @@ class Trie:
         return set(node.children.keys())
 
 
-class Util:
-    @classmethod
-    def get_name(cls, tool: dict[str, str]) -> str:
-        return tool["name"]
+class ModelGenerationError(RuntimeError):
+    """A call into the model failed at runtime (e.g. context-length overflow).
 
-    @classmethod
-    def get_parameters(cls, tool: dict[str, Any]) -> dict[str, Any]:
-        out: dict[str, Any] = {}
-        parameters_dict = tool["parameters"]
-        for k, v in parameters_dict.items():
-            if v["type"] == "number":
-                typ: Any = (int, float)
-            elif v["type"] == "string":
-                typ = str
-            elif v["type"] == "boolean":
-                typ = bool
-            else:
-                typ = v["type"]
-            out[k] = typ
-        return out
-
-    @classmethod
-    def build_fn_call(
-        cls, prompt: str, tool: str, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        output: dict[str, Any] = {}
-        output["prompt"] = prompt
-        output["name"] = tool
-        output["parameters"] = {k: v["value"] for k, v in params.items()}
-        return output
+    The SDK doesn't document a stable exception type for this, so every call
+    site wraps `get_logits_from_input_ids` through `_get_logits` below and
+    normalizes whatever it raises into this one catchable type.
+    """
 
 
-class Tool(BaseModel):
-    name: str
-    parameters: dict[str, type | tuple[type, ...]]
+def _get_logits(llm: Small_LLM_Model, convo: list[int]) -> list[float]:
+    try:
+        return cast(list[float], llm.get_logits_from_input_ids(convo))
+    except Exception as e:
+        raise ModelGenerationError(
+            f"model inference failed with a conversation of {len(convo)} "
+            f"tokens (possible context-length overflow): {e}"
+        ) from e
 
-    def __init__(self, tool: dict[str, Any]):
-        self.name = Util.get_name(tool)
-        self.parameters = Util.get_parameters(tool)
-        self.template = tool
+
+def build_fn_call(
+    prompt: str, tool: str, params: dict[str, ParameterValue]
+) -> FunctionCall:
+    return FunctionCall(
+        prompt=prompt,
+        name=tool,
+        parameters={k: v.value for k, v in params.items()},
+    )
 
 
 def choose_fn(
     llm: Small_LLM_Model,
     prompt: str,
-    tools: dict[str, Tool],
+    tools: dict[str, ToolDefinition],
     trie: Trie,
     pref: list[int],
 ) -> str:
@@ -114,28 +102,31 @@ def choose_fn(
     prefix = pref.copy()
     initial_prompt = START + CHOOSE_TOOL_PROMPT + END + START + "assistant"
     conversation = llm.encode(initial_prompt)[0].tolist()
-    logits = llm.get_logits_from_input_ids(conversation)
+    logits = _get_logits(llm, conversation)
     idx = _argmax(logits)
     conversation.append(idx)
     answer = []
     thought = []
     # Letting the model think
-    while idx != END_THINK_TOK:
-        logits = llm.get_logits_from_input_ids(conversation)
+    for _ in range(MAX_THINK_TOKENS):
+        logits = _get_logits(llm, conversation)
         idx = _argmax(logits)
         conversation.append(idx)
         thought.append(idx)
+        if idx == END_THINK_TOK:
+            break
+    if idx != END_THINK_TOK:
+        conversation.append(END_THINK_TOK)
+        thought.append(END_THINK_TOK)
     conversation.extend(prefix)
     answer.extend(prefix)
-    valid_token_ids = trie.get_valid_next_tokens(prefix)
-    while len(valid_token_ids):
+    while True:
         valid_token_ids = trie.get_valid_next_tokens(prefix)
-        logits = llm.get_logits_from_input_ids(conversation)
-        if len(valid_token_ids):
-            idx = max(valid_token_ids, key=lambda tid: logits[tid])
-            prefix.append(idx)
-        else:
-            idx = _argmax(logits)
+        if not valid_token_ids:
+            break
+        logits = _get_logits(llm, conversation)
+        idx = max(valid_token_ids, key=lambda tid: logits[tid])
+        prefix.append(idx)
         conversation.append(idx)
         answer.append(idx)
     return str(llm.decode(answer))
@@ -177,7 +168,7 @@ def get_number_token_sets(
     if cache_key in _NUMBER_TOKEN_CACHE:
         return _NUMBER_TOKEN_CACHE[cache_key]
 
-    vocab_size = len(llm.get_logits_from_input_ids(convo))
+    vocab_size = len(_get_logits(llm, convo))
     sets: dict[str, set[int]] = {
         "digit": set(),
         "signed_digit": set(),
@@ -239,7 +230,7 @@ def _fill_number_value(llm: Small_LLM_Model, convo: list[int]) -> str:
         if not allowed:
             break
 
-        logits = llm.get_logits_from_input_ids(convo)
+        logits = _get_logits(llm, convo)
         idx = _argmax(logits, allowed)
 
         if idx in sets["stop"]:
@@ -267,7 +258,7 @@ def _fill_bool_value(llm: Small_LLM_Model, convo: list[int]) -> str:
     prefix: list[int] = []
     valid_token_ids = trie.get_valid_next_tokens(prefix)
     while valid_token_ids:
-        logits = llm.get_logits_from_input_ids(convo)
+        logits = _get_logits(llm, convo)
         idx = _argmax(logits, valid_token_ids)
         convo.append(idx)
         prefix.append(idx)
@@ -275,7 +266,11 @@ def _fill_bool_value(llm: Small_LLM_Model, convo: list[int]) -> str:
     return str(llm.decode(prefix)).strip()
 
 
-def _fill_string_value(llm: Small_LLM_Model, convo: list[int]) -> str:
+def _fill_string_value(
+    llm: Small_LLM_Model,
+    convo: list[int],
+    stop_words: list[str] | None = None,  # NEW
+) -> str:
     """Capped, stop-gated decode for free-form string parameters.
 
     String content isn't grammar-constrained the way numbers/booleans are,
@@ -286,13 +281,20 @@ def _fill_string_value(llm: Small_LLM_Model, convo: list[int]) -> str:
     "inside" a quote, only the matching closing quote (or `\n`/END_TOKEN/the
     cap) ends the value. Without this, a value that legitimately starts with
     a quote character comes back empty instead of its real content.
+
+    stop_words additionally guards against runaway generation that wanders    # NEW
+    into the next field's syntax (e.g. source_string's value trailing off    # NEW
+    into "', regex: '0+', replacement:"). If the accumulated decoded text    # NEW
+    ever contains one of these substrings, generation stops immediately      # NEW
+    and everything from that point onward is discarded.                     # NEW
     """
     value_ids: list[int] = []
     quote_char: str | None = None
     started = False
-    # IMPORTANT: Missing the handling of the initial "token fused case
+    stop_words = stop_words or []  # NEW
+
     for _ in range(MAX_STRING_TOKENS):
-        logits = llm.get_logits_from_input_ids(convo)
+        logits = _get_logits(llm, convo)
         idx = _argmax(logits)
         token_text = llm.decode([idx])
 
@@ -306,6 +308,16 @@ def _fill_string_value(llm: Small_LLM_Model, convo: list[int]) -> str:
                 quote_char = stripped
                 convo.append(idx)
                 continue
+            if stripped and stripped[0] in ('"', "'") and len(stripped) > 1:  # NEW
+                # Opening quote fused with the first content token in a      # NEW
+                # single token (e.g. `"agent007` as one piece) instead of    # NEW
+                # arriving as its own token; keep the content after the      # NEW
+                # quote rather than losing it or treating the whole token    # NEW
+                # as a bare delimiter.                                       # NEW
+                quote_char = stripped[0]  # NEW
+                convo.append(idx)  # NEW
+                value_ids.append(idx)  # NEW
+                continue  # NEW
         elif quote_char is not None and stripped == quote_char:
             convo.append(idx)
             break
@@ -320,10 +332,76 @@ def _fill_string_value(llm: Small_LLM_Model, convo: list[int]) -> str:
         convo.append(idx)
         value_ids.append(idx)
 
+        if stop_words:  # NEW
+            partial = str(llm.decode(value_ids))  # NEW
+            hit = next((w for w in stop_words if w in partial), None)  # NEW
+            if hit is not None:  # NEW
+                cut = partial.index(hit)  # NEW
+                partial = partial[:cut]  # NEW
+                # Rebuild value_ids isn't possible post-hoc (ids don't map   # NEW
+                # 1:1 to characters), so decode-truncate here and return     # NEW
+                # the trimmed string directly rather than continuing the     # NEW
+                # token loop with stale ids.                                 # NEW
+                text = partial.rstrip()  # NEW
+                if quote_char is not None and text.endswith(quote_char):  # NEW
+                    text = text[: -len(quote_char)].rstrip()  # NEW
+                return text  # NEW
+
     text = str(llm.decode(value_ids)).strip()
     if quote_char is not None and text.endswith(quote_char):
         text = text[: -len(quote_char)].rstrip()
     return text
+
+
+# def _fill_string_value(llm: Small_LLM_Model, convo: list[int]) -> str:
+#     """Capped, stop-gated decode for free-form string parameters.
+#
+#     String content isn't grammar-constrained the way numbers/booleans are,
+#     but generation is still bounded by MAX_STRING_TOKENS. The model very
+#     often opens a value with a JSON-style quote character (mimicking the
+#     double-quoted tool template already in context), so a bare opening
+#     quote is consumed as a delimiter rather than treated as a stop; once
+#     "inside" a quote, only the matching closing quote (or `\n`/END_TOKEN/the
+#     cap) ends the value. Without this, a value that legitimately starts with
+#     a quote character comes back empty instead of its real content.
+#     """
+#     value_ids: list[int] = []
+#     quote_char: str | None = None
+#     started = False
+#     # IMPORTANT: Missing the handling of the initial "token fused case
+#     for _ in range(MAX_STRING_TOKENS):
+#         logits = _get_logits(llm, convo)
+#         idx = _argmax(logits)
+#         token_text = llm.decode([idx])
+#
+#         if idx == END_TOKEN or "\n" in token_text:
+#             break
+#
+#         stripped = token_text.strip()
+#         if not started:
+#             started = True
+#             if stripped in ('"', "'"):
+#                 quote_char = stripped
+#                 convo.append(idx)
+#                 continue
+#         elif quote_char is not None and stripped == quote_char:
+#             convo.append(idx)
+#             break
+#         elif quote_char is not None and stripped.endswith(quote_char):
+#             # The closing quote got merged into the same token as trailing
+#             # content (e.g. `old"` as one token) instead of being its own
+#             # token; keep the content but stop right after it.
+#             convo.append(idx)
+#             value_ids.append(idx)
+#             break
+#
+#         convo.append(idx)
+#         value_ids.append(idx)
+#
+#     text = str(llm.decode(value_ids)).strip()
+#     if quote_char is not None and text.endswith(quote_char):
+#         text = text[: -len(quote_char)].rstrip()
+#     return text
 
 
 def _let_model_think(
@@ -346,7 +424,7 @@ def _let_model_think(
     value_ids = []
     value_ids.extend(init_hint)
     for _ in range(max_tokens):
-        logits = llm.get_logits_from_input_ids(convo)
+        logits = _get_logits(llm, convo)
         idx = _argmax(logits)
         convo.append(idx)
         value_ids.append(idx)
@@ -355,38 +433,96 @@ def _let_model_think(
     if idx != END_THINK_TOK:
         convo.append(END_THINK_TOK)
         value_ids.append(END_THINK_TOK)
+    print(llm.decode(convo))
 
 
-def _coerce_value(text: str, type_: str) -> Any:
+def _clean_param_value(value: str) -> str:
+    # If it looks like a leaked "label: value" or 'label: "value"' prefix,
+    # strip everything up to and including the first colon that appears
+    # before any real content starts.
+    print(f"\n\nValue before cleaning: {value}")
+    m = re.match(r"""^\s*\{\s*['"]?\w+['"]?\s*:\s*['"]?(.*?)['"]?\s*\}\s*$""", value)
+    if m:
+        value = m.group(1)
+    m = re.match(r'^\s*"?[\w\s]{1,20}"?\s*:\s*', value)
+    if m:
+        value = value[m.end():]
+
+    value = value.rstrip(".")
+    value = value.strip("'")
+    value = value.strip('"')
+    if value and value.strip() == "":
+        return value
+    print(f"Value after cleaning: {value.strip()}\n\n")
+
+    return value.strip()
+
+
+def _coerce_value(text: str, type_: str) -> int | float | str | bool:
     """Convert the decoded literal text to the type the schema expects."""
     if type_ == "number":
-        try:
-            return float(text) if "." in text else int(text)
-        except ValueError:
-            return text
+        return float(text) if "." in text else int(text)
     if type_ == "boolean":
         return text == "true"
+    if type_ == "string":
+        return _clean_param_value(text)
     return text
 
 
 def fill_in_parameters(
-    llm: Small_LLM_Model, prompt: str, tools: dict[str, Tool], tool_name: str
-) -> dict[str, Any]:
-    SYSTEM = f"""
-    system
-    You are a helpful assistant,
-    the user chose the "{tool_name}" tool to solve the following prompt:
-    {prompt}
+    llm: Small_LLM_Model, prompt: str, tools: dict[str, ToolDefinition], tool_name: str
+) -> dict[str, ParameterValue]:
+    tool = tools[tool_name]
+    param_schemas = tool.parameters
+    # Only the parameter schema is shown here, not tool.model_dump(): dumping
+    # the whole ToolDefinition would repeat the tool's own "name" field right
+    # next to the parameter schema, and for a tool whose parameter is itself
+    # called "name" (e.g. fn_greet), the model latches onto the tool's own
+    # name as the "most recent name value" and echoes that back instead of
+    # reasoning about the actual parameter.
+    params_shape = {k: v.model_dump() for k, v in param_schemas.items()}
+    if tool_name == "fn_substitute_string_with_regex":
+        SYSTEM = rf"""Fill parameters for fn_substitute_string_with_regex.
+        Do NOT perform the substitution — only extract inputs.
+        - source_string: the ORIGINAL text, unmodified (the "before").
+            Never put the edited/result text here.
+        - regex: what to find/match.
+            - If the user names a literal word/phrase, use that text
+              (escaped if needed: . * + ? ( ) [ ] {{}} | ^ $ \).
+            - If the user names a CATEGORY (e.g. numbers, letters, vowels,
+              whitespace, digits)
+              , convert it to the matching pattern.
+                - numbers→\d+, letters→[a-zA-Z], vowels→[aeiouAEIOU], whitespace→\s+.
+        - replacement: what to insert in place of each match.
+            - If the user gives a literal word to insert, use that word as-is.
+            - If the user names a SYMBOL (e.g. asterisk, dash, hyphen, space,
+              underscore,
+              comma), convert it to the actual character.
+                - asterisk→*, dash/hyphen→-, underscore→_.
+            - If not stated (e.g. "remove X"), use "".
+        Examples:
+        "Replace all numbers in 'Hello 34 I'm 233' with NUMBERS"
+            → source_string: "Hello 34 I'm 233", regex: "\d+", replacement: "NUMBERS"
+            (regex is the numbers PATTERN, not the word "numbers";
+            replacement is the literal word given)
+        "Replace all vowels in 'Programming is fun' with asterisks"
+            → source_string: "Programming is fun", regex: "[aeiouAEIOU]",
+            replacement: "*"
+            (replacement is the actual asterisk character, not the word "asterisks")
+        Never write the finished/result string into source_string.
+        Original prompt: {prompt}
+        """
+    else:
+        SYSTEM = f"""system You are a useful agent that is tasked with filling
+        parameters for function calls.
+        Original prompt: {prompt}
+        You are filling the parameters for "{tool_name}"
 
-    You are now tasked to fill in the parameters of the function call.
-    The function takes the following shape:
-    {tools[tool_name].template}
-
-    assistant
-    """
+        The parameters to fill in are: {params_shape}
+        Extract the correct input value(s) the user provided for the function call.
+        Avoid computing, solving or transforming the value. Copy it as given.
+        """
     initial_prompt = START + SYSTEM + END + START + "assistant"
-    fn = copy.deepcopy(tools[tool_name].template)
-    params: dict[str, Any] = fn["parameters"]
     convo = llm.encode(initial_prompt)[0].tolist()
 
     # Reason about every parameter together, once, before any value is
@@ -394,20 +530,24 @@ def fill_in_parameters(
     # derived (e.g. "replacement" can see what "regex" was reasoned to be)
     # instead of each field re-deriving everything from scratch in
     # isolation, which is what caused cross-field confusion before.
-    param_list = ", ".join(f"{k} ({obj['type']})" for k, obj in params.items())
+    param_list = ", ".join(f"{k} ({obj.type})" for k, obj in param_schemas.items())
     plan_hint = (
         f"Let me work out the values for all parameters of {tool_name} "
-        f"together: {param_list}. I will reason about how they relate to "
-        f"each other before answering."
+        f"together: {param_list}."
+        f"So the values would be "
     )
-    _let_model_think(llm, convo, plan_hint, max_tokens=MAX_PLAN_THINK_TOKENS)
+    if tool_name == "fn_substitute_string_with_regex":
+        _let_model_think(llm, convo, plan_hint, max_tokens=2 * MAX_PLAN_THINK_TOKENS)
+    else:
+        _let_model_think(llm, convo, plan_hint, max_tokens=MAX_PLAN_THINK_TOKENS)
 
-    for k, obj in params.items():
+    values: dict[str, ParameterValue] = {}
+    for k, obj in param_schemas.items():
         snapshot_len = len(convo)
 
         meta = (
             f"{START_THINK} I am filling the parameter {k}, "
-            f"which must be of type {obj['type']} {END_THINK}"
+            f"which must be of type {obj.type} {END_THINK}"
         )
         convo.extend(llm.encode(meta)[0].tolist())
 
@@ -416,24 +556,29 @@ def fill_in_parameters(
         # JSON/dict-shaped draft (e.g. "{'name': 'Shrek'}") from the shared
         # reasoning above instead of the bare value; ruling that out
         # explicitly pulls the clean value out reliably.
-        if obj["type"] == "string":
+        other_field_names = [name for name in param_schemas if name != k]  # NEW
+        if obj.type == "string":
             cue = (
                 f"\nBased on the reasoning above, writing only the bare "
-                f"{k} value, with no braces, quotes, or key name: "
+                rf"{k} value, with no quotes, {{}} or key name: "
             )
         else:
             cue = f"\nBased on the reasoning above, {k} value: "
         convo.extend(llm.encode(cue)[0].tolist())
 
-        if obj["type"] == "number":
+        if obj.type == "number":
             text = _fill_number_value(llm, convo)
-        elif obj["type"] == "boolean":
+        elif obj.type == "boolean":
             text = _fill_bool_value(llm, convo)
         else:
-            text = _fill_string_value(llm, convo)
+            text = _fill_string_value(
+                llm, convo, stop_words=other_field_names
+            )  # CHANGED: was _fill_string_value(llm, convo)
+        # else:
+        #     text = _fill_string_value(llm, convo)
 
-        value = _coerce_value(text, obj["type"])
-        obj["value"] = value
+        value = _coerce_value(text, obj.type)
+        values[k] = ParameterValue(type=obj.type, value=value)
 
         # Roll back this field's raw decode trace (rejected quote tokens,
         # any commentary that didn't make it into the final value, etc.)
@@ -450,7 +595,7 @@ def fill_in_parameters(
         )
         convo.extend(llm.encode(note)[0].tolist())
 
-    return params
+    return values
 
 
 def parse_args() -> argparse.Namespace:
@@ -481,7 +626,8 @@ def main() -> int:
             tools_list = json.load(f)
     except FileNotFoundError:
         print(
-            f"{args.functions_definition} not found. Please try again with a valid path."
+            (f"{args.functions_definition} not found. "
+             "Please try again with a valid path.")
         )
         return 1
     except PermissionError:
@@ -497,24 +643,40 @@ def main() -> int:
         print(e)
         return 4
 
-    if not isinstance(tools_list, list):
-        print(
-            f"Malformed tools_list, expecting list[dict[str, str | dict]], got {tools_list}"
-        )
-        return 5
-    llm = Small_LLM_Model()
-    tools_dict = {}
-    for tool in tools_list:
-        try:
-            tools_dict[tool["name"]] = Tool(tool)
-        except Exception:
-            print(f"Missing 'name' argument for function call for function {tool}")
-            return 5
+    try:
+        tools = TypeAdapter(list[ToolDefinition]).validate_python(tools_list)
+        if not tools:
+            raise Exception("No tools provided for function calls")
+    except ValidationError as e:
+        print(f"{args.functions_definition} has an invalid schema:\n{e}")
+        return 8
+    except Exception as e:
+        print(e)
+        return 8
 
-    tool_names = [name for name in tools_dict.keys()]
-    tokenized_tools = [llm.encode(tool).tolist()[0] for tool in tool_names]
+    try:
+        llm = Small_LLM_Model()
+    except Exception as e:
+        print("Failed to load Small_LLM_Model")
+        print(e)
+        return 10
+
+    tools_dict: dict[str, ToolDefinition] = {tool.name: tool for tool in tools}
+
     trie = Trie()
-    for toktool in tokenized_tools:
+    for name in tools_dict.keys():
+        toktool = llm.encode(name).tolist()[0]
+        if not toktool:
+            # A name that encodes to zero tokens contributes no path to the
+            # trie at all, which would make it silently unselectable by
+            # choose_fn. Warn instead of letting it disappear quietly.
+            print(
+                (
+                    f"Warning: tool {name!r} encodes to zero tokens;"
+                    "it can never be selected and will be skipped."
+                )
+            )
+            continue
         trie.insert(toktool)
     prefix = []
     node = trie.root
@@ -531,24 +693,42 @@ def main() -> int:
         print(e)
         return 5
 
-    prompts_str = [p["prompt"] for p in prompts]
-    answers = []
+    try:
+        prompt_items = TypeAdapter(list[PromptItem]).validate_python(prompts)
+    except ValidationError as e:
+        print(f"{args.input} has an invalid schema:\n{e}")
+        return 9
+
+    prompts_str = [p.prompt for p in prompt_items]
+    answers: list[FunctionCall] = []
     for prompt in prompts_str:
-        tool = choose_fn(llm, prompt, tools_dict, trie, prefix)
-        params = fill_in_parameters(llm, prompt, tools_dict, tool)
-        call = Util.build_fn_call(prompt, tool, params)
+        try:
+            tool = choose_fn(llm, prompt, tools_dict, trie, prefix)
+            if tool not in tools_dict:
+                print(
+                    (
+                        f"Warning: model chose unknown tool {tool!r}"
+                        f" for prompt {prompt!r}; skipping."
+                    )
+                )
+                continue
+            params = fill_in_parameters(llm, prompt, tools_dict, tool)
+        except ModelGenerationError as e:
+            print(f"Warning: skipping prompt {prompt!r}: {e}")
+            continue
+        call = build_fn_call(prompt, tool, params)
         answers.append(call)
 
     output_dir = os.path.dirname(args.output)
     if not output_dir:
         print("Missing output directory path, printing output to screen...")
-        print(json.dumps(answers))
+        print(json.dumps([a.model_dump() for a in answers]))
         return 6
     try:
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
         with open(args.output, "w") as f:
-            json.dump(answers, f, indent=2)
+            json.dump([a.model_dump() for a in answers], f, indent=2)
     except Exception as e:
         print(f"Failed to write to output path {output_dir}")
         print(e)

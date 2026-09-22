@@ -6,10 +6,28 @@
     "prompt": "What is the sum of 265 and 345?"
   },
   {
-    "prompt": "Greet shrek"
+    "prompt": "Add 4809 to 1298?"
+  },
+  {
+    "prompt": "What is 890 + 3927?"
+  },
+  {
+    "prompt": "2 + 9?"
+  },
+  {
+    "prompt": "Say hi to Frankenstein"
   },
   {
     "prompt": "Greet john"
+  },
+  {
+    "prompt": "Greet shrek"
+  },
+  {
+    "prompt": "Say hi"
+  },
+  {
+    "prompt": "Say hi to albert"
   },
   {
     "prompt": "Reverse the string 'hello'"
@@ -18,10 +36,25 @@
     "prompt": "Reverse the string 'world'"
   },
   {
+    "prompt": "What's the reverse of 'abclksjdfl'?"
+  },
+  {
+    "prompt": "What's the reverse of 'Alabama'?"
+  },
+  {
+    "prompt": "Reverse the word abstinence"
+  },
+  {
     "prompt": "What is the square root of 16?"
   },
   {
     "prompt": "Calculate the square root of 144"
+  },
+  {
+    "prompt": "What is the square root of 100?"
+  },
+  {
+    "prompt": "Calculate the square root of 121"
   },
   {
     "prompt": "Replace all numbers in \"Hello 34 I'm 233 years old\" with NUMBERS"

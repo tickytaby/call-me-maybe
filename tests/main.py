@@ -1,6 +1,7 @@
 import math
 import re
 import json
+import sys
 
 
 def fn_add_numbers(a: int | float, b: int | float) -> float:
@@ -41,14 +42,16 @@ def main() -> None:
     fn_store["fn_get_square_root"] = fn_get_square_root
     fn_store["fn_substitute_string_with_regex"] = fn_substitute_string_with_regex
 
+    path_pre = "./data/output/"
+
     try:
-        with open("./data/output/output.json") as f:
+        with open(f"{path_pre}{sys.argv[1]}") as f:
             data = json.load(f)
         for call in data:
             try:
                 out = fn_store[call["name"]](**call["parameters"])
-                print(call["prompt"])
-                print(out)
+                print(call)
+                print("-->", out)
                 print()
             except Exception:
                 print(f"Failed call for {call}.")
