@@ -6,9 +6,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "accelerate>=1.14.0",
- "llm-sdk",
- "numpy>=2.2.6",
- "pydantic>=2.13.5",
+    "llm-sdk",
+    "numpy>=2.2.6",
+    "pydantic>=2.13.5",
+    "pytest>=9.1.1",
 ]
 
 [project.scripts]

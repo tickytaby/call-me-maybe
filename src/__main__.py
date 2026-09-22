@@ -1,10 +1,12 @@
 from llm_sdk import Small_LLM_Model  # type: ignore[attr-defined]
+from pydantic import BaseModel
 import numpy as np
 import argparse
 import json
+import os
 from typing import Any
-import time
 import copy
+import sys
 
 
 START = "<|im_start|> "
@@ -16,8 +18,6 @@ END_TOKEN = 151645
 START_THINK_TOK = 151667
 END_THINK_TOK = 151668
 
-# Hard safety caps so a per-parameter value can never generate forever, no
-# matter how the model behaves.
 MAX_VALUE_TOKENS = 32
 MAX_STRING_TOKENS = 20
 MAX_THINK_TOKENS = 40
@@ -62,8 +62,6 @@ class Util:
         parameters_dict = tool["parameters"]
         for k, v in parameters_dict.items():
             if v["type"] == "number":
-                # A JSON "number" can legally decode to either an int (e.g.
-                # "2") or a float (e.g. "3.0"); accept both.
                 typ: Any = (int, float)
             elif v["type"] == "string":
                 typ = str
@@ -85,7 +83,7 @@ class Util:
         return output
 
 
-class Tool:
+class Tool(BaseModel):
     name: str
     parameters: dict[str, type | tuple[type, ...]]
 
@@ -469,20 +467,49 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        default="./output.json",
+        default="./data/output/output.json",
         help="Path to write the resulting JSON list of fn_calls to.",
     )
     return parser.parse_args()
 
 
-def main() -> None:
+def main() -> int:
     args = parse_args()
-    with open(args.functions_definition, "r") as f:
-        tools_list = json.load(f)
+
+    try:
+        with open(args.functions_definition, "r") as f:
+            tools_list = json.load(f)
+    except FileNotFoundError:
+        print(
+            f"{args.functions_definition} not found. Please try again with a valid path."
+        )
+        return 1
+    except PermissionError:
+        print(f"Can't open {args.functions_definition}. -> missing permissions")
+        return 2
+    except json.JSONDecodeError:
+        print(
+            f"Failed to load json, make sure {args.functions_definition} is valid json"
+        )
+        return 3
+    except Exception as e:
+        print(f"Failed loading {args.functions_definition}")
+        print(e)
+        return 4
+
+    if not isinstance(tools_list, list):
+        print(
+            f"Malformed tools_list, expecting list[dict[str, str | dict]], got {tools_list}"
+        )
+        return 5
     llm = Small_LLM_Model()
     tools_dict = {}
     for tool in tools_list:
-        tools_dict[tool["name"]] = Tool(tool)
+        try:
+            tools_dict[tool["name"]] = Tool(tool)
+        except Exception:
+            print(f"Missing 'name' argument for function call for function {tool}")
+            return 5
 
     tool_names = [name for name in tools_dict.keys()]
     tokenized_tools = [llm.encode(tool).tolist()[0] for tool in tool_names]
@@ -496,8 +523,14 @@ def main() -> None:
         prefix.append(tid)
         node = node.children[tid]
 
-    with open(args.input, "r") as f:
-        prompts = json.load(f)
+    try:
+        with open(args.input, "r") as f:
+            prompts = json.load(f)
+    except Exception as e:
+        print(f"Trouble opening file {args.input}")
+        print(e)
+        return 5
+
     prompts_str = [p["prompt"] for p in prompts]
     answers = []
     for prompt in prompts_str:
@@ -506,11 +539,22 @@ def main() -> None:
         call = Util.build_fn_call(prompt, tool, params)
         answers.append(call)
 
-    with open(args.output, "w") as f:
-        json.dump(answers, f, indent=2)
-
-    return
+    output_dir = os.path.dirname(args.output)
+    if not output_dir:
+        print("Missing output directory path, printing output to screen...")
+        print(json.dumps(answers))
+        return 6
+    try:
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        with open(args.output, "w") as f:
+            json.dump(answers, f, indent=2)
+    except Exception as e:
+        print(f"Failed to write to output path {output_dir}")
+        print(e)
+        return 7
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

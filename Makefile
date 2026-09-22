@@ -2,10 +2,13 @@ install:
 	uv sync
 
 run:
-	uv run python -m src
+	uv run python -m src $(ARGS)
 
 debug:
-	uv run python -m pdb -m src
+	uv run python -m pdb -m src $(ARGS)
+
+test:
+	uv run python test/main.py
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
@@ -19,4 +22,4 @@ lint-strict:
 	flake8 .
 	mypy . --strict
 
-.PHONY: install run debug clean lint lint-strict
+.PHONY: install run debug test clean lint lint-strict
