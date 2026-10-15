@@ -3,7 +3,7 @@
     "prompt": "What is the sum of 2 and 3?",
     "name": "fn_add_numbers",
     "parameters": {
-      "a": 2,
+      "a": 2.0,
       "b": 3.0
     }
   },
@@ -11,7 +11,7 @@
     "prompt": "What is the sum of 265 and 345?",
     "name": "fn_add_numbers",
     "parameters": {
-      "a": 265,
+      "a": 265.0,
       "b": 345.0
     }
   },
@@ -19,7 +19,7 @@
     "prompt": "Add 4809 to 1298?",
     "name": "fn_add_numbers",
     "parameters": {
-      "a": 4809,
+      "a": 4809.0,
       "b": 1298.0
     }
   },

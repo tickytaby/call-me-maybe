@@ -11,7 +11,7 @@ debug:
 	uv run python -m pdb -m src $(ARGS)
 
 test:
-	uv run python test/main.py
+	uv run python tests/main.py
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +

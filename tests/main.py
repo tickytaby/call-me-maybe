@@ -44,6 +44,9 @@ def main() -> None:
 
     path_pre = "./data/output/"
 
+    if len(sys.argv) == 1:
+        print("Missing testfile")
+        return
     try:
         with open(f"{path_pre}{sys.argv[1]}") as f:
             data = json.load(f)
