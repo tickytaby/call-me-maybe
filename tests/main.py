@@ -2,6 +2,7 @@ import math
 import re
 import json
 import sys
+from typing import Any, Callable
 
 
 def fn_add_numbers(a: int | float, b: int | float) -> float:
@@ -35,7 +36,7 @@ def fn_substitute_string_with_regex(
 
 
 def main() -> None:
-    fn_store = {}
+    fn_store: dict[str, Callable[..., Any]] = {}
     fn_store["fn_add_numbers"] = fn_add_numbers
     fn_store["fn_greet"] = fn_greet
     fn_store["fn_reverse_string"] = fn_reverse_string

@@ -1,7 +1,7 @@
 [project]
 name = "call-me-maybe"
 version = "0.1.0"
-description = "Add your description here"
+description = "Natural language to function calls with constrained decoding on Qwen3-0.6B"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -9,11 +9,7 @@ dependencies = [
     "llm-sdk",
     "numpy>=2.2.6",
     "pydantic>=2.13.5",
-    "pytest>=9.1.1",
 ]
-
-[project.scripts]
-call-me-maybe = "call_me_maybe:main"
 
 [tool.uv.workspace]
 members = [
@@ -25,3 +21,14 @@ llm-sdk = { workspace = true }
 
 [tool.mypy]
 exclude = ["^\\.venv/", "^llm_sdk/"]
+
+[dependency-groups]
+dev = [
+    "flake8>=7.4.1",
+    "mypy>=2.4.1",
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+python_files = ["*_test.py"]
