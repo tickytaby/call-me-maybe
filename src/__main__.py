@@ -612,7 +612,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        default="./data/output/output.json",
+        default="./data/output/function_calling_results.json",
         help="Path to write the resulting JSON list of fn_calls to.",
     )
     return parser.parse_args()
